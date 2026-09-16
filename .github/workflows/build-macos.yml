@@ -1,4 +1,4 @@
-name: Build macOS Universal DMG
+ame: Build, Sign and Notarize macOS App
 
 on:
   push:
@@ -13,7 +13,41 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Build MCUApps Universal DMG
+      - name: Import Apple Certificates into Keychain
+        env:
+          MACOS_CERT_APP_P12: ${{ secrets.MACOS_CERT_APP_P12 }}
+          MACOS_CERT_INST_P12: ${{ secrets.MACOS_CERT_INST_P12 }}
+          MACOS_CERT_PWD: ${{ secrets.MACOS_CERT_PWD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Decode and import Developer ID Application
+          echo "$MACOS_CERT_APP_P12" | base64 --decode > $RUNNER_TEMP/app_cert.p12
+          security import $RUNNER_TEMP/app_cert.p12 -k "$KEYCHAIN_PATH" -P "$MACOS_CERT_PWD" -T /usr/bin/codesign
+
+          # Decode and import Developer ID Installer
+          echo "$MACOS_CERT_INST_P12" | base64 --decode > $RUNNER_TEMP/inst_cert.p12
+          security import $RUNNER_TEMP/inst_cert.p12 -k "$KEYCHAIN_PATH" -P "$MACOS_CERT_PWD" -T /usr/bin/productsign -T /usr/bin/pkgbuild
+
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          echo "Certificates successfully imported:"
+          security find-identity -v "$KEYCHAIN_PATH"
+
+      - name: Build, Sign & Notarize MCUApps
+        env:
+          DEVELOPER_ID_APP: "Developer ID Application: Gufron Muhaimin (JBKNM459K6)"
+          DEVELOPER_ID_INST: "Developer ID Installer: Gufron Muhaimin (JBKNM459K6)"
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           cd MCUApps-macOS
           chmod +x build_macos.sh

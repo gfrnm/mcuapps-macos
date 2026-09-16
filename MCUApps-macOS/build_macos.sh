@@ -2,9 +2,8 @@
 set -e
 
 # ==============================================================================
-#  MCUApps macOS Universal Binary & DMG Builder
-#  Mendukung: Apple Silicon (M1, M2, M3, M4) & Intel (x86_64)
-#  Target OS: macOS 10.15 Catalina s/d macOS 15 Sequoia (dan lebih baru)
+#  MCUApps macOS Universal Binary, DMG & Signed/Notarized PKG Builder
+#  Developer: Gufron Muhaimin (JBKNM459K6)
 # ==============================================================================
 
 echo "🚀 [1/6] Memulai proses build MCUApps untuk macOS..."
@@ -18,10 +17,11 @@ CONTENTS_DIR="${APP_DIR}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 DMG_NAME="MCUApps-macOS-Universal.dmg"
+PKG_NAME="MCUApps-Setup.pkg"
 
 # Bersihkan build lama jika ada
 rm -rf "${BUILD_DIR}"
-rm -f "${DMG_NAME}"
+rm -f "${DMG_NAME}" "${PKG_NAME}"
 mkdir -p "${MACOS_DIR}"
 mkdir -p "${RESOURCES_DIR}"
 
@@ -89,21 +89,27 @@ chmod +x "${MACOS_DIR}/${APP_NAME}"
 rm -f "${BUILD_DIR}/${APP_NAME}_arm64" "${BUILD_DIR}/${APP_NAME}_x86_64"
 
 # ------------------------------------------------------------------------------
-# 4. Menyusun App Bundle & Info.plist
+# 4. Menyusun App Bundle & Info.plist & Code Signing
 # ------------------------------------------------------------------------------
 echo "📦 [4/6] Menyiapkan struktur ${APP_NAME}.app Bundle..."
 cp "./Resources/Info.plist" "${CONTENTS_DIR}/Info.plist"
 echo "APPL????" > "${CONTENTS_DIR}/PkgInfo"
 
-# Ad-hoc Code Sign (agar langsung dapat izin dijalankan di macOS)
-codesign --force --deep --entitlements "./Resources/MCUApps.entitlements" --sign - "${APP_DIR}" > /dev/null 2>&1 || true
+if [ -n "$DEVELOPER_ID_APP" ]; then
+    echo "🔏 Menandatangani ${APP_DIR} dengan sertifikat resmi Developer ID Application (${DEVELOPER_ID_APP})..."
+    codesign --force --deep --options runtime --timestamp --entitlements "./Resources/MCUApps.entitlements" --sign "${DEVELOPER_ID_APP}" "${APP_DIR}"
+    codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
+else
+    echo "⚠️ Menandatangani ${APP_DIR} dengan ad-hoc signature..."
+    codesign --force --deep --entitlements "./Resources/MCUApps.entitlements" --sign - "${APP_DIR}" > /dev/null 2>&1 || true
+fi
 
 echo "✅ Berhasil membuat bundle: ${APP_DIR}"
 
 # ------------------------------------------------------------------------------
 # 5. Membuat Installer 1 File Tunggal (.DMG dan .PKG)
 # ------------------------------------------------------------------------------
-echo "💿 [5/6] Mengemas ke dalam installer 1 file tunggal (.dmg & .pkg)..."
+echo "💿 [5/6] Mengemas ke dalam installer (.dmg & .pkg)..."
 
 # A. Format 1: Disk Image (.DMG)
 DMG_TEMP_DIR="${BUILD_DIR}/dmg_staging"
@@ -120,22 +126,62 @@ hdiutil create \
 
 rm -rf "${DMG_TEMP_DIR}"
 
+if [ -n "$DEVELOPER_ID_APP" ]; then
+    echo "🔏 Menandatangani ${DMG_NAME} dengan Developer ID Application..."
+    codesign --force --sign "${DEVELOPER_ID_APP}" --timestamp "${DMG_NAME}"
+fi
+
 # B. Format 2: Installer Wizard Package (.PKG)
-PKG_NAME="MCUApps-Setup.pkg"
-pkgbuild \
-    --component "${APP_DIR}" \
-    --install-location "/Applications" \
-    --identifier "${BUNDLE_ID}" \
-    --version "${VERSION}" \
-    "${PKG_NAME}" > /dev/null 2>&1 || true
+if [ -n "$DEVELOPER_ID_INST" ]; then
+    echo "🔏 Mengemas dan menandatangani ${PKG_NAME} dengan Developer ID Installer (${DEVELOPER_ID_INST})..."
+    pkgbuild \
+        --component "${APP_DIR}" \
+        --install-location "/Applications" \
+        --identifier "${BUNDLE_ID}" \
+        --version "${VERSION}" \
+        --sign "${DEVELOPER_ID_INST}" \
+        --timestamp \
+        "${PKG_NAME}"
+else
+    echo "⚠️ Mengemas ${PKG_NAME} tanpa tanda tangan Developer ID..."
+    pkgbuild \
+        --component "${APP_DIR}" \
+        --install-location "/Applications" \
+        --identifier "${BUNDLE_ID}" \
+        --version "${VERSION}" \
+        "${PKG_NAME}" > /dev/null 2>&1 || true
+fi
 
 # ------------------------------------------------------------------------------
-# 6. Selesai!
+# 6. Apple Notarization & Stapling (Bebas Malware Guarantee)
 # ------------------------------------------------------------------------------
-echo "🎉 [6/6] SUKSES! File installer 1 file tunggal siap dibagikan:"
-echo "👉 ${DMG_NAME} (Format Standar Mac .dmg)"
-if [ -f "${PKG_NAME}" ]; then
-    echo "👉 ${PKG_NAME} (Format Wizard Installer .pkg)"
+if [ -n "$APPLE_APP_PASSWORD" ] && [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ]; then
+    echo "🛡️ Mengirim ${PKG_NAME} ke Apple Notary Service..."
+    xcrun notarytool submit "${PKG_NAME}" \
+        --apple-id "${APPLE_ID}" \
+        --password "${APPLE_APP_PASSWORD}" \
+        --team-id "${APPLE_TEAM_ID}" \
+        --wait
+
+    echo "📎 Menempelkan (staple) tiket notarisasi resmi Apple ke ${PKG_NAME}..."
+    xcrun stapler staple "${PKG_NAME}"
+
+    echo "🛡️ Mengirim ${DMG_NAME} ke Apple Notary Service..."
+    xcrun notarytool submit "${DMG_NAME}" \
+        --apple-id "${APPLE_ID}" \
+        --password "${APPLE_APP_PASSWORD}" \
+        --team-id "${APPLE_TEAM_ID}" \
+        --wait
+
+    echo "📎 Menempelkan (staple) tiket notarisasi resmi Apple ke ${DMG_NAME}..."
+    xcrun stapler staple "${DMG_NAME}"
+
+    echo "✅ Notarisasi Apple dan Stapling BERHASIL! File 100% bebas peringatan malware."
+else
+    echo "ℹ️ Melewati langkah notarisasi (kredensial Apple ID belum disetel)."
 fi
-echo "👉 Ukuran: ± 1 - 2 MB (Universal Binary untuk SEMUA Mac)"
+
+echo "🎉 SUKSES! Installer siap didistribusikan:"
+echo "👉 ${PKG_NAME} (Wizard Installer .pkg)"
+echo "👉 ${DMG_NAME} (Format Standar .dmg)"
 
