@@ -1,4 +1,4 @@
-ame: Build, Sign and Notarize macOS App
+name: Build, Sign and Notarize macOS App
 
 on:
   push:
