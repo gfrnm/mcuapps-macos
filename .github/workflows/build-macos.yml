@@ -15,9 +15,11 @@ jobs:
 
       - name: Import Apple Certificates into Keychain
         env:
-          MACOS_CERT_APP_P12: ${{ secrets.MACOS_CERT_APP_P12 }}
-          MACOS_CERT_INST_P12: ${{ secrets.MACOS_CERT_INST_P12 }}
-          MACOS_CERT_PWD: ${{ secrets.MACOS_CERT_PWD }}
+          MACOS_APP_KEY: ${{ secrets.MACOS_APP_KEY }}
+          MACOS_APP_PEM: ${{ secrets.MACOS_APP_PEM }}
+          MACOS_INST_KEY: ${{ secrets.MACOS_INST_KEY }}
+          MACOS_INST_PEM: ${{ secrets.MACOS_INST_PEM }}
+          CERT_PASS: "MCUApps2026!"
         run: |
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
@@ -26,13 +28,19 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Decode and import Developer ID Application
-          echo "$MACOS_CERT_APP_P12" | base64 --decode > $RUNNER_TEMP/app_cert.p12
-          security import $RUNNER_TEMP/app_cert.p12 -k "$KEYCHAIN_PATH" -P "$MACOS_CERT_PWD" -T /usr/bin/codesign
+          # Write PEM files
+          echo "$MACOS_APP_KEY" > $RUNNER_TEMP/app.key
+          echo "$MACOS_APP_PEM" > $RUNNER_TEMP/app.pem
+          echo "$MACOS_INST_KEY" > $RUNNER_TEMP/inst.key
+          echo "$MACOS_INST_PEM" > $RUNNER_TEMP/inst.pem
 
-          # Decode and import Developer ID Installer
-          echo "$MACOS_CERT_INST_P12" | base64 --decode > $RUNNER_TEMP/inst_cert.p12
-          security import $RUNNER_TEMP/inst_cert.p12 -k "$KEYCHAIN_PATH" -P "$MACOS_CERT_PWD" -T /usr/bin/productsign -T /usr/bin/pkgbuild
+          # Convert to PKCS12 using macOS native LibreSSL / OpenSSL
+          openssl pkcs12 -export -inkey $RUNNER_TEMP/app.key -in $RUNNER_TEMP/app.pem -out $RUNNER_TEMP/app.p12 -passout pass:"$CERT_PASS"
+          openssl pkcs12 -export -inkey $RUNNER_TEMP/inst.key -in $RUNNER_TEMP/inst.pem -out $RUNNER_TEMP/inst.p12 -passout pass:"$CERT_PASS"
+
+          # Import into Keychain
+          security import $RUNNER_TEMP/app.p12 -k "$KEYCHAIN_PATH" -P "$CERT_PASS" -T /usr/bin/codesign
+          security import $RUNNER_TEMP/inst.p12 -k "$KEYCHAIN_PATH" -P "$CERT_PASS" -T /usr/bin/productsign -T /usr/bin/pkgbuild
 
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
