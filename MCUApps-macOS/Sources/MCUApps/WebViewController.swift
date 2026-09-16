@@ -273,7 +273,9 @@ class WebViewController: NSViewController, WKNavigationDelegate, WKUIDelegate, A
     }
 
     private func applyZoom() {
-        webView.pageZoom = CGFloat(currentZoomFactor)
+        if #available(macOS 11.0, *) {
+            webView.pageZoom = CGFloat(currentZoomFactor)
+        }
     }
 
     func handleEscapeKey() {
@@ -309,7 +311,7 @@ class WebViewController: NSViewController, WKNavigationDelegate, WKUIDelegate, A
         // 3. Google OAuth / Sign In Detection
         if urlString.contains("accounts.google.com") || urlString.contains("google.com/o/oauth") || urlString.contains("google.com/signin") {
             googleNavView.isHidden = false
-            self.view.bringSubviewToFront(googleNavView)
+            self.view.addSubview(googleNavView, positioned: .above, relativeTo: nil)
         } else {
             googleNavView.isHidden = true
         }
@@ -335,7 +337,7 @@ class WebViewController: NSViewController, WKNavigationDelegate, WKUIDelegate, A
         splashView.isHidden = true
         progressIndicator.stopAnimation(nil)
         errorView.isHidden = false
-        self.view.bringSubviewToFront(errorView)
+        self.view.addSubview(errorView, positioned: .above, relativeTo: nil)
     }
 
     // MARK: - WKUIDelegate (Popups and new windows)

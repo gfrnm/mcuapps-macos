@@ -61,7 +61,7 @@ SWIFT_SOURCES=(
 
 # Compile arm64 (Apple Silicon M1/M2/M3/M4)
 swiftc -O \
-    -target arm64-apple-macos10.15 \
+    -target arm64-apple-macos11.0 \
     -sdk "$(xcrun --show-sdk-path)" \
     -framework Cocoa \
     -framework WebKit \
@@ -71,7 +71,7 @@ swiftc -O \
 
 # Compile x86_64 (Intel Mac)
 swiftc -O \
-    -target x86_64-apple-macos10.15 \
+    -target x86_64-apple-macos11.0 \
     -sdk "$(xcrun --show-sdk-path)" \
     -framework Cocoa \
     -framework WebKit \
