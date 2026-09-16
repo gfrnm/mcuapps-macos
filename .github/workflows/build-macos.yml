@@ -29,14 +29,18 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           # Write PEM files
-          echo "$MACOS_APP_KEY" > $RUNNER_TEMP/app.key
-          echo "$MACOS_APP_PEM" > $RUNNER_TEMP/app.pem
-          echo "$MACOS_INST_KEY" > $RUNNER_TEMP/inst.key
-          echo "$MACOS_INST_PEM" > $RUNNER_TEMP/inst.pem
+          printf "%s\n" "$MACOS_APP_KEY" > $RUNNER_TEMP/app.key
+          printf "%s\n" "$MACOS_APP_PEM" > $RUNNER_TEMP/app.pem
+          printf "%s\n" "$MACOS_INST_KEY" > $RUNNER_TEMP/inst.key
+          printf "%s\n" "$MACOS_INST_PEM" > $RUNNER_TEMP/inst.pem
 
-          # Convert to PKCS12 using macOS native LibreSSL / OpenSSL
-          openssl pkcs12 -export -inkey $RUNNER_TEMP/app.key -in $RUNNER_TEMP/app.pem -out $RUNNER_TEMP/app.p12 -passout pass:"$CERT_PASS"
-          openssl pkcs12 -export -inkey $RUNNER_TEMP/inst.key -in $RUNNER_TEMP/inst.pem -out $RUNNER_TEMP/inst.p12 -passout pass:"$CERT_PASS"
+          # Convert to PKCS12 using OpenSSL with -legacy for macOS Keychain compatibility
+          openssl pkcs12 -export -legacy -inkey $RUNNER_TEMP/app.key -in $RUNNER_TEMP/app.pem -out $RUNNER_TEMP/app.p12 -passout pass:"$CERT_PASS"
+          openssl pkcs12 -export -legacy -inkey $RUNNER_TEMP/inst.key -in $RUNNER_TEMP/inst.pem -out $RUNNER_TEMP/inst.p12 -passout pass:"$CERT_PASS"
+
+          # Import Apple Developer ID Intermediate Certificate
+          curl -s -o $RUNNER_TEMP/DeveloperIDCA.cer https://www.apple.com/certificateauthority/DeveloperIDCA.cer
+          security import $RUNNER_TEMP/DeveloperIDCA.cer -k "$KEYCHAIN_PATH" || true
 
           # Import into Keychain
           security import $RUNNER_TEMP/app.p12 -k "$KEYCHAIN_PATH" -P "$CERT_PASS" -T /usr/bin/codesign
